@@ -1,0 +1,5 @@
+# To actually activate the enviroment
+source ENVIRONMENT/bin/activate
+
+# To install all of the requirements
+pip install -r requirements.txt
