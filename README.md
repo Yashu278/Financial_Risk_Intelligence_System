@@ -139,21 +139,34 @@ Compresses 24 monthly rows → 1 behavioral profile per user.
 
 ## 🤖 Phase 2 — Risk Classification
 
-### Risk Score Formula
+## Risk Scoring
 
-```python
-risk_score = (
-    0.30 * neg_savings_freq      +   # Inability to live within income
-    0.25 * expense_ratio_mean    +   # Persistent overspending
-    0.20 * severe_overspend_freq +   # Extreme stress episodes
-    0.15 * income_volatility     +   # Supply-side instability
-    0.10 * savings_volatility        # Demand-side erratic behavior
-)
-```
+Risk scores are computed using a weighted combination of five behavioral
+features:
 
-Each feature is scaled by a domain maximum before weighting — so scores are independent of dataset distribution. A new user's score does not shift if the dataset composition changes.
+    neg_savings_freq:      0.30
+    expense_ratio_mean:    0.25
+    income_volatility:     0.20
+    savings_volatility:    0.15
+    severe_overspend_freq: 0.10
 
-**Labels:** Percentile-based (33rd / 67th) for guaranteed class balance (~660 each).
+Before computing the weighted sum, each component is normalized to [0, 1]
+using MinMaxScaler fitted on the full feature dataset. This means the
+risk score is dataset-relative — a user's score reflects their position
+within the distribution of all 2,000 users, not an absolute domain threshold.
+
+Risk labels (High / Medium / Low) are then assigned using 33rd and 66th
+percentile quantile thresholds on the resulting risk scores, ensuring
+balanced class distribution (~33% per class).
+
+This approach is intentional: it produces stable, comparable scores
+across the synthetic population and ensures no single extreme user
+distorts the label boundaries.
+
+Limitation: Because MinMaxScaler is dataset-dependent, the risk score
+thresholds will shift if the underlying population changes significantly.
+In a production system, these thresholds would be fixed after validation
+on a representative dataset.
 
 ### Model Results
 
