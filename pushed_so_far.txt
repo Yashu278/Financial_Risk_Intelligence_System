@@ -1,0 +1,28 @@
+Pushed so far snapshot
+
+Current state
+-------------
+The active pipeline is now script-first.
+
+Included in the current local upgrade:
+
+- `src/data_generation.py`
+- `src/feature_engineering.py`
+- `src/pipeline_contract.py`
+- `src/pipeline.py`
+- `src/risk_model.py`
+- `src/predict.py`
+- `src/validate_phase2.py`
+
+Deprecated reference only:
+
+- `src/risk_labeling.ipynb`
+
+Excluded from push:
+
+- `logs/pipeline_run_20260411_173457.json`
+
+Notes
+-----
+- Notebooks are reference artifacts only.
+- The only supported rebuild command is `python src/pipeline.py --clean`.

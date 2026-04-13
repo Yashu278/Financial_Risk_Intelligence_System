@@ -1,191 +1,313 @@
-"""
-predict.py — Phase 2 Inference Layer  (v2 — with input validation)
-AI-Driven Financial Risk & Intelligence System
-"""
+import joblib
+import numpy as np
+import pandas as pd
+from scipy.stats import norm
 
-import os, numpy as np, joblib
+from src.pipeline_contract import FEATURE_COLS_PATH, LABEL_ENCODER_PATH, MODEL_PATH, SCALER_PATH, load_feature_cols, required_input_fields
 
-MODELS_DIR = "models"
-_MODEL = _SCALER = _ENCODER = _FEAT_COLS = None
+model = joblib.load(MODEL_PATH)
+scaler = joblib.load(SCALER_PATH)
+le = joblib.load(LABEL_ENCODER_PATH)
+FEATURE_COLS = load_feature_cols(FEATURE_COLS_PATH)
 
-# ─────────────────────────────────────────────
-# Input bounds (from actual dataset statistics)
-# Any value outside these is likely a data error
-# ─────────────────────────────────────────────
-INPUT_BOUNDS = {
-    "avg_income"            : (5000,    500000),
-    "income_volatility"     : (0.0,     1.0),
-    "income_growth_rate"    : (-0.05,   0.05),
-    "expense_ratio_mean"    : (0.0,     2.0),
-    "expense_volatility"    : (0.0,     1.0),
-    "severe_overspend_freq" : (0.0,     1.0),
-    "irregular_freq"        : (0.0,     1.0),
-    "avg_irregular_amt"     : (0.0,     100000),
-    "savings_volatility"    : (0.0,     700.0),
-    "neg_savings_freq"      : (0.0,     1.0),
-    "max_neg_savings_streak": (0,       24),
-    "city_tier_code"        : (1,       3),
-    "age"                   : (18,      80),
-}
+REQUIRED_FIELDS = required_input_fields(FEATURE_COLS)
 
-def _load_artifacts():
-    global _MODEL, _SCALER, _ENCODER, _FEAT_COLS
-    if _MODEL is not None:
-        return
-    for f in ["risk_model.pkl","scaler.pkl","label_encoder.pkl","feature_cols.pkl"]:
-        p = os.path.join(MODELS_DIR, f)
-        if not os.path.exists(p):
-            raise FileNotFoundError(f"Missing: {p}\nRun python src/risk_model.py first.")
-    _MODEL     = joblib.load(os.path.join(MODELS_DIR, "risk_model.pkl"))
-    _SCALER    = joblib.load(os.path.join(MODELS_DIR, "scaler.pkl"))
-    _ENCODER   = joblib.load(os.path.join(MODELS_DIR, "label_encoder.pkl"))
-    _FEAT_COLS = joblib.load(os.path.join(MODELS_DIR, "feature_cols.pkl"))
+print(f"Model expects {len(FEATURE_COLS)} features from {FEATURE_COLS_PATH}.")
+print(f"User must supply {len(REQUIRED_FIELDS)} fields (severe_overspend_freq is derived).")
 
-def _validate_inputs(inputs: dict):
-    """FIX: reject impossible values before they silently corrupt predictions."""
-    errors = []
-    for col, (lo, hi) in INPUT_BOUNDS.items():
-        if col in inputs:
-            val = inputs[col]
-            if not (lo <= val <= hi):
-                errors.append(f"  {col}={val} is outside valid range [{lo}, {hi}]")
-    if errors:
-        raise ValueError("Input validation failed:\n" + "\n".join(errors))
 
-def predict_risk(
-    avg_income, income_volatility, income_growth_rate,
-    expense_ratio_mean, expense_volatility,
-    irregular_freq, avg_irregular_amt,
-    savings_volatility, neg_savings_freq,
-    max_neg_savings_streak, city_tier_code, age,
-    severe_overspend_freq=None,   # optional: auto-derived if not provided
-) -> dict:
-    """
-    Predict financial risk for one user.
-    Returns: risk_label, confidence, probabilities, explanation
-    """
-    from scipy import stats as scipy_stats
+def enforce_feature_contract(input_df):
+    input_features = list(input_df.columns)
 
-    _load_artifacts()
-
-    # Auto-derive severe_overspend_freq if not supplied
-    if severe_overspend_freq is None:
-        sigma = max(expense_volatility, 1e-6)
-        severe_overspend_freq = float(
-            np.clip(1 - scipy_stats.norm.cdf(0.90, loc=expense_ratio_mean, scale=sigma), 0, 1)
+    if input_features != FEATURE_COLS:
+        raise ValueError(
+            "Feature order mismatch between input and trained artifact. "
+            f"Expected: {FEATURE_COLS} | Got: {input_features}"
         )
 
-    inputs = {
-        "avg_income"            : avg_income,
-        "income_volatility"     : income_volatility,
-        "income_growth_rate"    : income_growth_rate,
-        "expense_ratio_mean"    : expense_ratio_mean,
-        "expense_volatility"    : expense_volatility,
-        "severe_overspend_freq" : severe_overspend_freq,
-        "irregular_freq"        : irregular_freq,
-        "avg_irregular_amt"     : avg_irregular_amt,
-        "savings_volatility"    : savings_volatility,
-        "neg_savings_freq"      : neg_savings_freq,
-        "max_neg_savings_streak": max_neg_savings_streak,
-        "city_tier_code"        : city_tier_code,
-        "age"                   : age,
+    if hasattr(model, "n_features_in_") and model.n_features_in_ != len(input_features):
+        raise ValueError(
+            "Model feature count mismatch. "
+            f"model.n_features_in_={model.n_features_in_}, input_features={len(input_features)}"
+        )
+
+    if hasattr(scaler, "n_features_in_") and scaler.n_features_in_ != len(input_features):
+        raise ValueError(
+            "Scaler feature count mismatch. "
+            f"scaler.n_features_in_={scaler.n_features_in_}, input_features={len(input_features)}"
+        )
+
+
+def validate_input(input_dict):
+    """
+    Validates that all required fields are present and within bounds.
+    Required fields are derived from feature_cols.pkl at load time,
+    so this validation always matches the actual model schema.
+    """
+    errors = []
+
+    # Define bounds for all possible fields
+    ALL_BOUNDS = {
+        "avg_income": (1000, 500000),
+        "income_volatility": (0, 2.0),
+        "income_growth_rate": (-0.5, 0.5),
+        "expense_ratio_mean": (0, 2.0),
+        "expense_volatility": (0, 1.0),
+        "irregular_freq": (0, 1.0),
+        "avg_irregular_amt": (0, 100000),
+        "savings_volatility": (0, 2.0),
+        "neg_savings_freq": (0, 1.0),
+        "max_neg_savings_streak": (0, 24),
+        "city_tier_code": (1, 3),
+        "severe_overspend_freq": (0, 1.0),
     }
 
-    # Validate BEFORE prediction — catches impossible values
-    _validate_inputs(inputs)
+    # Only validate fields the model actually needs
+    for field in REQUIRED_FIELDS:
+        if field not in input_dict:
+            errors.append(f"Missing required field: '{field}'")
+            continue
+        val = input_dict[field]
+        if field in ALL_BOUNDS:
+            low, high = ALL_BOUNDS[field]
+            if not (low <= val <= high):
+                errors.append(f"'{field}' = {val} is outside valid range [{low}, {high}]")
 
-    # Build feature row in EXACT training order
-    try:
-        row = np.array([[inputs[col] for col in _FEAT_COLS]])
-    except KeyError as e:
-        raise ValueError(f"Missing feature: {e}. Expected: {_FEAT_COLS}")
+    return errors
 
-    row_scaled = _SCALER.transform(row)
-    pred_enc   = _MODEL.predict(row_scaled)[0]
-    label      = _ENCODER.inverse_transform([pred_enc])[0]
-    proba      = _MODEL.predict_proba(row_scaled)[0]
-    classes    = _ENCODER.classes_
-    prob_dict  = {c: round(float(p), 4) for c, p in zip(classes, proba)}
-    confidence = round(float(proba[pred_enc]), 4)
+
+def derive_features(input_dict):
+    if "severe_overspend_freq" not in input_dict:
+        mean = input_dict.get("expense_ratio_mean", 0.5)
+        std = input_dict.get("expense_volatility", 0.1) + 1e-6
+        input_dict["severe_overspend_freq"] = float(1 - norm.cdf(0.90, loc=mean, scale=std))
+    return input_dict
+
+
+def generate_explanation(input_dict, risk_label):
+    neg_freq = input_dict.get("neg_savings_freq", 0)
+    exp_ratio = input_dict.get("expense_ratio_mean", 0)
+    volatility = input_dict.get("income_volatility", 0)
+    overspend = input_dict.get("severe_overspend_freq", 0)
+
+    if risk_label == "High":
+        reasons = []
+        if neg_freq > 0.4:
+            reasons.append(f"negative savings in {neg_freq*100:.0f}% of months")
+        if exp_ratio > 0.75:
+            reasons.append(f"average expense ratio of {exp_ratio:.2f}")
+        if overspend > 0.3:
+            reasons.append(f"high probability of severe overspending ({overspend*100:.0f}%)")
+        if volatility > 0.3:
+            reasons.append(f"unstable income (volatility: {volatility:.2f})")
+        if not reasons:
+            reasons.append("combination of multiple risk factors")
+        return "High financial risk detected due to: " + ", ".join(reasons) + "."
+
+    elif risk_label == "Medium":
+        return (
+            f"Moderate financial risk. Expense ratio is {exp_ratio:.2f} "
+            f"with savings turning negative in {neg_freq*100:.0f}% of months. "
+            f"Manageable but requires attention."
+        )
+
+    else:
+        return (
+            f"Low financial risk. Expense ratio is {exp_ratio:.2f} "
+            f"with stable savings pattern. "
+            f"Negative savings in only {neg_freq*100:.0f}% of months."
+        )
+
+
+def predict_risk(input_dict):
+    """
+    Predict financial risk for a single user.
+
+    Required input fields (derived from feature_cols.pkl at load time):
+      These fields must be present in input_dict.
+      Run: print(REQUIRED_FIELDS) to see the exact list for your model.
+
+    Auto-derived field (do NOT supply manually):
+      severe_overspend_freq — computed from expense_ratio_mean
+                              and expense_volatility
+
+    Returns:
+      dict with keys:
+        risk_label    : str  — "High", "Medium", or "Low"
+        confidence    : float — probability of predicted class
+        probabilities : dict  — probability for each class
+        explanation   : str  — plain language reason
+      OR on validation failure:
+        {"error": [list of error strings]}
+    """
+    errors = validate_input(input_dict)
+    if errors:
+        return {"error": errors}
+
+    input_dict = derive_features(input_dict)
+
+    # Build input as DataFrame to enforce column order explicitly
+    input_df = pd.DataFrame([input_dict])
+
+    for col in FEATURE_COLS:
+        if col not in input_df.columns:
+            input_df[col] = 0.0
+
+    # Enforce exact column order matching training
+    input_df = input_df[FEATURE_COLS]
+
+    enforce_feature_contract(input_df)
+
+    # Scale using the DataFrame directly (preserves column names, no warning)
+    input_scaled = scaler.transform(input_df)
+
+    pred_encoded = model.predict(input_scaled)[0]
+    pred_proba = model.predict_proba(input_scaled)[0]
+    risk_label = le.inverse_transform([pred_encoded])[0]
+    confidence = float(round(max(pred_proba), 4))
+
+    probabilities = {cls: float(round(prob, 4)) for cls, prob in zip(le.classes_, pred_proba)}
+
+    explanation = generate_explanation(input_dict, risk_label)
 
     return {
-        "risk_label"   : label,
-        "confidence"   : confidence,
-        "probabilities": prob_dict,
-        "explanation"  : _explain(label, inputs),
+        "risk_label": risk_label,
+        "confidence": confidence,
+        "probabilities": probabilities,
+        "explanation": explanation,
     }
 
-def _explain(label, f) -> str:
-    reasons = []
-    if f["neg_savings_freq"] >= 0.30:
-        reasons.append(f"Negative savings in {f['neg_savings_freq']*100:.0f}% of months")
-    if f["expense_ratio_mean"] >= 0.75:
-        reasons.append(f"Spending {f['expense_ratio_mean']*100:.0f}% of income on expenses")
-    if f["income_volatility"] >= 0.25:
-        reasons.append(f"High income instability (CV={f['income_volatility']:.2f})")
-    if f["income_growth_rate"] < 0:
-        reasons.append("Income trend is declining")
-    if f["max_neg_savings_streak"] >= 3:
-        reasons.append(f"Longest negative-savings run: {f['max_neg_savings_streak']} months")
-    if not reasons:
-        reasons = ["Financial profile stable across all key metrics"]
-    prefix = {"High": "🔴 HIGH RISK — ", "Medium": "🟡 MEDIUM RISK — ", "Low": "🟢 LOW RISK — "}[label]
-    return prefix + " | ".join(reasons)
 
-# ─────────────────────────────────────────────
-# SELF-TEST
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
-    print("\n" + "═"*62)
-    print("  PREDICT.PY — SELF TEST (v2)")
-    print("═"*62)
 
-    cases = [
-        ("High", dict(avg_income=28000, income_volatility=0.55,
-            income_growth_rate=-0.005, expense_ratio_mean=0.92,
-            expense_volatility=0.45, irregular_freq=0.70,
-            avg_irregular_amt=18000, savings_volatility=5.0,
-            neg_savings_freq=0.75, max_neg_savings_streak=6,
-            city_tier_code=3, age=24)),
+    print("\n" + "=" * 60)
+    print("PHASE 2 — PREDICT.PY SELF-TEST")
+    print("=" * 60)
 
-        ("Low",  dict(avg_income=120000, income_volatility=0.05,
-            income_growth_rate=0.015, expense_ratio_mean=0.40,
-            expense_volatility=0.08, irregular_freq=0.04,
-            avg_irregular_amt=5000, savings_volatility=0.10,
-            neg_savings_freq=0.0, max_neg_savings_streak=0,
-            city_tier_code=2, age=42)),
+    test1 = {
+        "avg_income": 35000,
+        "income_volatility": 0.12,
+        "income_growth_rate": 0.03,
+        "expense_ratio_mean": 0.62,
+        "expense_volatility": 0.08,
+        "irregular_freq": 0.10,
+        "avg_irregular_amt": 2000,
+        "savings_volatility": 0.10,
+        "neg_savings_freq": 0.05,
+        "max_neg_savings_streak": 1,
+        "city_tier_code": 2,
+    }
 
-        ("Medium", dict(avg_income=55000, income_volatility=0.18,
-            income_growth_rate=0.003, expense_ratio_mean=0.65,
-            expense_volatility=0.20, irregular_freq=0.20,
-            avg_irregular_amt=10000, savings_volatility=0.90,
-            neg_savings_freq=0.08, max_neg_savings_streak=1,
-            city_tier_code=2, age=33)),
+    test_medium = {
+        "avg_income": 78011.12,
+        "income_volatility": 0.2008,
+        "income_growth_rate": 0.0170,
+        "expense_ratio_mean": 0.7057,
+        "expense_volatility": 0.1016,
+        "irregular_freq": 0.1085,
+        "avg_irregular_amt": 4944.69,
+        "savings_volatility": 0.1371,
+        "neg_savings_freq": 0.0947,
+        "max_neg_savings_streak": 2,
+        "city_tier_code": 1,
+    }
+
+    test2 = {
+        "avg_income": 120000,
+        "income_volatility": 0.05,
+        "income_growth_rate": 0.08,
+        "expense_ratio_mean": 0.35,
+        "expense_volatility": 0.04,
+        "irregular_freq": 0.04,
+        "avg_irregular_amt": 3000,
+        "savings_volatility": 0.05,
+        "neg_savings_freq": 0.00,
+        "max_neg_savings_streak": 0,
+        "city_tier_code": 3,
+    }
+
+    test3 = {
+        "avg_income": 18000,
+        "income_volatility": 0.40,
+        "income_growth_rate": -0.02,
+        "expense_ratio_mean": 0.95,
+        "expense_volatility": 0.15,
+        "irregular_freq": 0.30,
+        "avg_irregular_amt": 4000,
+        "savings_volatility": 0.30,
+        "neg_savings_freq": 1.00,
+        "max_neg_savings_streak": 24,
+        "city_tier_code": 1,
+    }
+
+    test4 = {
+        "avg_income": 22000,
+        "income_volatility": 0.20,
+        "income_growth_rate": 0.00,
+        "expense_ratio_mean": 0.99,
+        "expense_volatility": 0.05,
+        "irregular_freq": 0.15,
+        "avg_irregular_amt": 1500,
+        "savings_volatility": 0.08,
+        "neg_savings_freq": 0.50,
+        "max_neg_savings_streak": 6,
+        "city_tier_code": 2,
+    }
+
+    test5 = {
+        "avg_income": 30000,
+        "income_volatility": 0.15,
+        "income_growth_rate": 0.01,
+        "expense_ratio_mean": 0.60,
+        "expense_volatility": 0.10,
+        "irregular_freq": 0.08,
+        "avg_irregular_amt": 1800,
+        "savings_volatility": 0.12,
+        "neg_savings_freq": 0.10,
+        "max_neg_savings_streak": 2,
+        # Intentionally omitted: city_tier_code
+    }
+
+    test_cases = [
+        ("TEST 1 — Normal user", test1, "Low"),
+        ("TEST 1B — Moderate-risk profile", test_medium, "Medium"),
+        ("TEST 2 — High income / low expense", test2, "Low"),
+        ("TEST 3 — All negative savings", test3, "High"),
+        ("TEST 4 — Zero savings", test4, "High"),
+        ("TEST 5 — Missing field", test5, "ERROR"),
     ]
 
-    # Validation test — should raise error
-    print("\n[VALIDATION TEST] Passing expense_ratio_mean=5 (impossible value):")
-    try:
-        predict_risk(avg_income=50000, income_volatility=0.1,
-            income_growth_rate=0.001, expense_ratio_mean=5.0,  # ← invalid
-            expense_volatility=0.15, irregular_freq=0.05,
-            avg_irregular_amt=8000, savings_volatility=0.5,
-            neg_savings_freq=0.05, max_neg_savings_streak=1,
-            city_tier_code=2, age=30)
-    except ValueError as e:
-        print(f"  ✅ Correctly caught: {e}")
+    all_passed = True
 
-    # Normal tests
-    print()
-    all_pass = True
-    for expected, inputs in cases:
-        result = predict_risk(**inputs)
-        ok = result["risk_label"] == expected
-        if not ok:
-            all_pass = False
-        print(f"  {'✅' if ok else '❌'} Expected={expected:<8} Got={result['risk_label']:<8} "
-              f"conf={result['confidence']:.2%}")
-        print(f"     {result['explanation']}\n")
+    for name, case, expected in test_cases:
+        print(f"\n{name}")
+        print("-" * 50)
+        result = predict_risk(case)
+        print(result)
 
-    print("✅ All prediction tests passed!" if all_pass else "❌ Some tests failed — review model.")
-    print("═"*62 + "\n")
+        if expected == "ERROR":
+            if "error" in result:
+                print("✅ PASS — validation caught missing field correctly")
+            else:
+                print("❌ FAIL — should have returned error for missing field")
+                all_passed = False
+
+        elif expected is not None:
+            if result.get("risk_label") == expected:
+                print(f"✅ PASS — correctly predicted {expected}")
+            else:
+                print(f"❌ FAIL — expected {expected}, got {result.get('risk_label')}")
+                all_passed = False
+        else:
+            if "risk_label" in result and result["risk_label"] in ["High", "Medium", "Low"]:
+                print(f"✅ PASS — returned valid label: {result['risk_label']}")
+            else:
+                print("❌ FAIL — invalid or missing risk_label in result")
+                all_passed = False
+
+    print("\n" + "=" * 60)
+    if all_passed:
+        print("ALL TESTS PASSED — Phase 2 is complete.")
+    else:
+        print("SOME TESTS FAILED — Fix issues before moving to Phase 3.")
+    print("=" * 60)

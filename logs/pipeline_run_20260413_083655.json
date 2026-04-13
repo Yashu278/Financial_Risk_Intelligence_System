@@ -1,0 +1,36 @@
+{
+  "started_at": "2026-04-13T08:36:52.496192Z",
+  "clean": false,
+  "stages": [
+    {
+      "stage": "data_generation",
+      "callable": "generate_data",
+      "started_at": "2026-04-13T08:36:52.496759Z",
+      "finished_at": "2026-04-13T08:36:54.267936Z",
+      "status": "ok"
+    },
+    {
+      "stage": "feature_engineering",
+      "callable": "engineer_features",
+      "started_at": "2026-04-13T08:36:54.267992Z",
+      "finished_at": "2026-04-13T08:36:55.040644Z",
+      "status": "ok"
+    },
+    {
+      "stage": "risk_model",
+      "callable": "main",
+      "started_at": "2026-04-13T08:36:55.040687Z",
+      "finished_at": "2026-04-13T08:36:55.322539Z",
+      "status": "ok"
+    },
+    {
+      "stage": "validate_phase2",
+      "callable": "main",
+      "started_at": "2026-04-13T08:36:55.322561Z",
+      "finished_at": "2026-04-13T08:36:55.343824Z",
+      "status": "ok"
+    }
+  ],
+  "finished_at": "2026-04-13T08:36:55.343847Z",
+  "status": "ok"
+}

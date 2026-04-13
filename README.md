@@ -42,9 +42,10 @@ Financial_Risk_Intelligence_System/
 │   └── feature_cols.pkl             # Ordered feature list (prevents silent mismatch)
 │
 ├── src/
-│   ├── data_generation.ipynb         # Phase 1A: Synthetic finance data engine
-│   ├── feature_engineering.ipynb     # Phase 1B: Monthly → behavioral profiles
-│   ├── risk labeling.ipynb           # Phase 2 prototype (reference only)
+│   ├── data_generation.py            # Phase 1A: Synthetic finance data engine
+│   ├── feature_engineering.py        # Phase 1B: Monthly → behavioral profiles
+│   ├── pipeline_contract.py          # Shared feature/artifact contract
+│   ├── pipeline.py                   # Single rebuild entrypoint
 │   ├── risk_model.py                 # Phase 2: Full ML training pipeline
 │   └── predict.py                    # Phase 2: Inference with validation + explanation
 │
@@ -53,6 +54,12 @@ Financial_Risk_Intelligence_System/
 ├── requirements.txt
 ├── test.py
 └── ENV_start.txt
+```
+
+Deprecated artifact:
+
+```text
+src/risk_labeling.ipynb  # historical prototype only, not part of the operational pipeline
 ```
 
 ---
@@ -75,31 +82,27 @@ python test.py
 
 ## 🚀 How to Run
 
-### Phase 1 — Data Pipeline (already run, outputs exist)
+### Single supported rebuild path
 
 ```bash
-# Regenerate raw data (optional)
-jupyter notebook src/data_generation.ipynb
-
-# Regenerate features (optional)
-jupyter notebook src/feature_engineering.ipynb
+python src/pipeline.py --clean
 ```
 
-### Phase 2 — Risk Modeling
+This is the only operational path. It rebuilds raw data, engineered features, labels, model artifacts, and validation outputs in one run.
+
+### Verification commands
 
 ```bash
-# Train models, evaluate, save artifacts
-python src/risk_model.py
-
-# Test prediction on sample inputs
+python src/validate_phase2.py
 python src/predict.py
+python test.py
 ```
 
 ---
 
 ## 📊 Phase 1 — Data Foundation
 
-### 1A: Synthetic Data Generation (`data_generation.ipynb`)
+### 1A: Synthetic Data Generation (`data_generation.py`)
 
 Simulates realistic personal finance history for **2,000 users** across **24 months** (48,000 rows total).
 
@@ -121,7 +124,7 @@ Simulates realistic personal finance history for **2,000 users** across **24 mon
 
 **Leakage protection:** `segment` is removed before any ML work. It exists only in `finance_data_full.csv` for auditing.
 
-### 1B: Feature Engineering (`feature_engineering.ipynb`)
+### 1B: Feature Engineering (`feature_engineering.py`)
 
 Compresses 24 monthly rows → 1 behavioral profile per user.
 
@@ -232,6 +235,8 @@ Input validation is enforced. Values outside realistic bounds raise a `ValueErro
 **Balanced labels** — Percentile thresholds guarantee ~33% per class. Fixed thresholds would create imbalance and corrupt evaluation metrics.
 
 **Production-ready inference** — Feature order is enforced via `feature_cols.pkl`. Artifacts are verified on reload.
+
+**Notebook status** — `src/risk_labeling.ipynb` is a deprecated historical prototype only. It is not part of the operational pipeline and should not be used to generate labels.
 
 ---
 

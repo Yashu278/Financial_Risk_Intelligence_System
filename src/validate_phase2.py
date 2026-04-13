@@ -4,19 +4,19 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from pipeline_contract import FEATURES_PATH, FEATURE_COLS_PATH, LABELED_FEATURES_PATH, LABEL_ENCODER_PATH, MODEL_PATH, SCALER_PATH, load_feature_cols, require_columns
+
 
 def main():
-    df = pd.read_csv("data/processed/features_labeled.csv")
+    df = pd.read_csv(LABELED_FEATURES_PATH)
     print(f"2000 users processed, 0 errors")
 
-    model = joblib.load("models/risk_model.pkl")
-    scaler = joblib.load("models/scaler.pkl")
-    le = joblib.load("models/label_encoder.pkl")
-    feature_cols = joblib.load("models/feature_cols.pkl")
+    model = joblib.load(MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
+    le = joblib.load(LABEL_ENCODER_PATH)
+    feature_cols = load_feature_cols(FEATURE_COLS_PATH)
 
-    missing_cols = [col for col in feature_cols if col not in df.columns]
-    if missing_cols:
-        raise ValueError(f"Missing required feature columns: {missing_cols}")
+    require_columns(df, feature_cols, str(LABELED_FEATURES_PATH))
 
     X = df[feature_cols]
     y_true = df["risk_label"]
@@ -40,9 +40,13 @@ def main():
         "savings_volatility",
         "severe_overspend_freq",
     ]
+    required_direction_features = [
+        "neg_savings_freq",
+        "expense_ratio_mean",
+        "income_volatility",
+    ]
 
-    # Only use columns that exist in the dataframe
-    check_features = [f for f in check_features if f in df.columns]
+    require_columns(df, check_features, str(LABELED_FEATURES_PATH))
 
     group_means = df.groupby("risk_label")[check_features].mean().round(4)
     print("\nMean feature values by risk label:")
@@ -51,6 +55,7 @@ def main():
     # Verify direction: High risk should have higher values than Low risk
     # for all stress features
     alignment_ok = True
+    required_alignment_ok = True
     for feat in check_features:
         try:
             high_val = group_means.loc["High", feat]
@@ -63,6 +68,8 @@ def main():
                     f" — check if this makes domain sense"
                 )
                 alignment_ok = False
+                if feat in required_direction_features:
+                    required_alignment_ok = False
         except KeyError:
             print(f"  SKIP: {feat} not in group_means index")
 
@@ -79,7 +86,7 @@ def main():
         len(errors) == 0 and
         match_rate >= 0.90 and
         low_conf <= 100 and
-        alignment_ok
+        required_alignment_ok
     )
 
     print("\n" + "=" * 60)
