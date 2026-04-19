@@ -4,7 +4,6 @@ import random
 import joblib
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
@@ -36,13 +35,6 @@ def main():
 
     df = pd.read_csv(FEATURES_PATH)
     require_columns(df, REQUIRED_FEATURE_COLS, str(FEATURES_PATH))
-
-    if "severe_overspend_freq" not in df.columns:
-        df["severe_overspend_freq"] = 1 - norm.cdf(
-            0.90,
-            loc=df["expense_ratio_mean"],
-            scale=df["expense_volatility"] + 1e-6,
-        )
 
     score_components = [
         "neg_savings_freq",

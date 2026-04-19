@@ -14,11 +14,11 @@ A behavioral finance analysis system that classifies financial risk, forecasts f
 | Phase 1A | Synthetic Data Generation | ✅ Complete |
 | Phase 1B | Behavioral Feature Engineering | ✅ Complete |
 | Phase 2 | Risk Classification (ML Core) | ✅ Complete |
-| Phase 3 | Forecasting Engine (ARIMA) | 🔄 In Progress |
-| Phase 4 | Monte Carlo Simulation | ⬜ Pending |
-| Phase 5 | System Integration | ⬜ Pending |
-| Phase 6 | GenAI RAG Assistant | ⬜ Pending |
-| Phase 7 | Streamlit UI | ⬜ Pending |
+| Phase 3 | Forecasting Engine (ARIMA) | ✅ Complete |
+| Phase 4 | Monte Carlo Simulation | ✅ Complete |
+| Phase 5 | System Integration | ✅ Complete |
+| Phase 6 | FinTalkBot Decision Layer | ✅ Complete |
+| Phase 7 | Streamlit UI | ✅ Complete |
 
 ---
 
@@ -49,8 +49,8 @@ Financial_Risk_Intelligence_System/
 │   ├── risk_model.py                 # Phase 2: Full ML training pipeline
 │   └── predict.py                    # Phase 2: Inference with validation + explanation
 │
-├── knowledge_base/                   # Phase 6: RAG documents (coming)
-├── app.py                            # Phase 7: Streamlit UI (coming)
+├── knowledge_base/                   # Optional future RAG documents
+├── app.py                            # Phase 7: Streamlit UI
 ├── requirements.txt
 ├── test.py
 └── ENV_start.txt
@@ -90,6 +90,10 @@ python src/pipeline.py --clean
 
 This is the only operational path. It rebuilds raw data, engineered features, labels, model artifacts, and validation outputs in one run.
 
+Pipeline scope note:
+- The pipeline includes batch forecasting output generation (`data/processed/forecasts.csv`) for full reproducibility.
+- The Streamlit app still performs user-specific realtime forecasting at runtime for live inputs.
+
 ### Verification commands
 
 ```bash
@@ -97,6 +101,54 @@ python src/validate_phase2.py
 python src/predict.py
 python test.py
 ```
+
+## 🚀 Phase 7 Demo Flow
+
+Run the Streamlit app from the `1st_Draft` folder:
+
+```bash
+streamlit run app.py
+```
+
+Demo script:
+1. Enter income `50000`, expenses `40000`, investment `100000`, return `8%`, volatility `15%`, and years `5`.
+2. Click Analyze My Financial Profile.
+3. Show the risk label, trends, charts, and Monte Carlo summary.
+4. Switch to FinTalkBot (final decision layer) and ask: `How should I improve my savings?`
+5. Show the profile-aware action guidance generated from risk + trends + simulation context.
+
+If Tab 2 is opened before Tab 1, the app shows a warning and waits for analysis first.
+
+### FinTalkBot API key usage (Dual-key)
+
+FinTalkBot uses a dual-key model:
+
+1. If a user enters a key in Tab 2, that key is used first.
+2. If user key is empty, the app tries a system demo key from environment variables.
+3. If neither is available, the app uses rule-based fallback mode.
+4. The app does not write keys to repository files.
+5. Keys are not shown in logs.
+6. User-entered keys are session-local and cleared when session state is reset.
+
+System demo key env variable names:
+
+```text
+SYSTEM_GEMINI_API_KEY
+SYSTEM_OPENAI_API_KEY
+SYSTEM_ANTHROPIC_API_KEY
+SYSTEM_GROQ_API_KEY
+```
+
+Legacy compatible variable names (also supported):
+
+```text
+GEMINI_API_KEY
+OPENAI_API_KEY
+ANTHROPIC_API_KEY
+GROQ_API_KEY
+```
+
+Keep `.env` local and never commit it.
 
 ---
 
@@ -135,7 +187,7 @@ Compresses 24 monthly rows → 1 behavioral profile per user.
 | Income stability | `avg_income`, `income_volatility` (CV), `income_growth_rate` |
 | Expense behavior | `expense_ratio_mean`, `expense_volatility`, `irregular_freq`, `avg_irregular_amt` |
 | Savings behavior | `savings_volatility`, `neg_savings_freq`, `max_neg_savings_streak` |
-| Derived stress | `severe_overspend_freq` (Normal CDF approximation) |
+| Derived stress | `severe_overspend_freq` (fraction of months with expense > 120% of income) |
 | Context | `city_tier_code`, `age` |
 
 ---
@@ -208,9 +260,9 @@ result = predict_risk(
     avg_irregular_amt=15000,
     savings_volatility=3.50,
     neg_savings_freq=0.60,
+    severe_overspend_freq=0.45,
     max_neg_savings_streak=4,
-    city_tier_code=3,
-    age=28
+    city_tier_code=3
 )
 
 # Returns:
@@ -230,7 +282,7 @@ Input validation is enforced. Values outside realistic bounds raise a `ValueErro
 
 **No data leakage** — StandardScaler is fit only on training data, then applied to test. Segment column excluded from all ML inputs.
 
-**Statistically principled features** — `severe_overspend_freq` is computed as P(expense_ratio > 0.9) using a Normal CDF, not a multiplication proxy.
+**Statistically aligned features** — `severe_overspend_freq` is computed empirically as the fraction of months where expense exceeds 120% of income, and the same definition is used in training and runtime inference.
 
 **Balanced labels** — Percentile thresholds guarantee ~33% per class. Fixed thresholds would create imbalance and corrupt evaluation metrics.
 

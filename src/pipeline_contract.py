@@ -23,12 +23,13 @@ REQUIRED_FEATURE_COLS = [
     "avg_irregular_amt",
     "savings_volatility",
     "neg_savings_freq",
+    "severe_overspend_freq",
     "max_neg_savings_streak",
     "city_tier_code",
 ]
 
-DERIVED_FEATURE_COLS = ["severe_overspend_freq"]
-MODEL_FEATURE_COLS = REQUIRED_FEATURE_COLS + DERIVED_FEATURE_COLS
+DERIVED_FEATURE_COLS: list[str] = []
+MODEL_FEATURE_COLS = REQUIRED_FEATURE_COLS
 
 
 def load_feature_cols(path: Path = FEATURE_COLS_PATH) -> list[str]:

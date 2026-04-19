@@ -1,0 +1,280 @@
+================================================================
+   PHASE 6 — FINTALKBOT: DESIGN EXPLANATION & ARCHITECTURE
+   What we changed, why we changed it, and how it works
+================================================================
+
+
+================================================================
+SECTION 1 — WHAT THE ORIGINAL PLAN WAS
+================================================================
+
+The original PROJECT_GUIDE.md described FinTalkBot as:
+
+  - A single function: get_financial_advice(user_question, user_profile_dict)
+  - Using only Google Gemini API
+  - API key stored as an environment variable on the developer's machine
+  - Every user's query consumed the developer's (your) API credits
+  - No fallback if API was unavailable or key was missing
+
+This is acceptable for a solo prototype but has three serious problems:
+
+  Problem 1 — Cost
+    Every question asked by any user burns your personal API credits.
+    In a demo or deployment, this is unsustainable.
+
+  Problem 2 — Single point of failure
+    If Gemini is down, quota is exhausted, or the key is wrong,
+    the entire chatbot is broken with no recovery.
+
+  Problem 3 — Not realistic
+    Real AI products do not hardcode a single provider's key.
+    They give users control over which model and which key to use.
+
+
+================================================================
+SECTION 2 — WHAT WE CHANGED AND WHY
+================================================================
+
+We redesigned Phase 6 around three principles:
+
+  Principle 1 — Bring Your Own Key (BYOK)
+    The user provides their own API key for whichever AI provider
+    they want to use. The system uses it only for that session.
+    It is never saved to disk, never logged, never stored anywhere.
+    This means zero cost to you and full control to the user.
+
+  Principle 2 — Multi-Provider Support
+    Instead of being locked to Gemini, the system supports:
+      * Google Gemini  (gemini-pro)
+      * OpenAI         (gpt-4o-mini or gpt-3.5-turbo)
+      * Anthropic      (claude-haiku or claude-sonnet)
+    The user picks their provider, enters their key, and the
+    system routes the request to the correct API automatically.
+
+  Principle 3 — Rule-Based Fallback
+    If no key is provided, the key is invalid, or the API call
+    fails for any reason, the system does NOT crash.
+    It falls back to a rule-based response engine that uses the
+    user's financial profile to generate relevant advice without
+    any external API call. This means the chatbot always works.
+
+
+================================================================
+SECTION 3 — HOW THE SYSTEM WORKS (FULL FLOW)
+================================================================
+
+Step 1: User completes Tab 1 (Financial Analysis)
+  The system has already computed:
+    - risk_label        (High / Medium / Low)
+    - expense_trend     (Improving / Stable / Deteriorating)
+    - savings_trend     (Improving / Stable / Deteriorating)
+    - avg_income        (computed from their input)
+    - expense_ratio     (computed from their input)
+    - neg_savings_freq  (computed from their input)
+
+  This profile is stored in st.session_state so Tab 2 can access it.
+
+Step 2: User opens Tab 2 (FinTalkBot)
+  They see:
+    - A provider selector: Gemini / OpenAI / Anthropic
+    - A password field to enter their API key
+    - A note: "Your key is used only for this session and never saved"
+    - Their current financial profile displayed as a banner
+    - A chat input box
+
+Step 3: User types a question
+  The system checks:
+
+    IF api_key is provided AND provider is selected:
+      → Call the selected AI provider's API
+      → Pass the user's financial profile as context
+      → Return a personalized AI response
+
+    IF api_key is missing OR empty:
+      → Use rule-based fallback engine
+      → Return profile-aware advice based on risk label and trends
+      → Show a soft message: "Add an API key for full AI responses"
+
+    IF api_key is provided BUT API call fails:
+      → Catch the exception silently
+      → Fall back to rule-based engine automatically
+      → User sees a response, not an error
+
+Step 4: Response is displayed in chat
+  All messages (both AI and fallback) are stored in
+  st.session_state['chat_history'] so the conversation
+  persists for the duration of the session.
+
+
+================================================================
+SECTION 4 — HOW API KEYS ARE MANAGED
+================================================================
+
+What we DO:
+  - Accept the key as a Streamlit password input (masked field)
+  - Pass it directly to the API call function as a parameter
+  - Store it only in st.session_state for the current browser session
+  - Clear it automatically when the page is refreshed or closed
+
+What we DO NOT do:
+  - Write the key to any file
+  - Log the key anywhere
+  - Send the key to any server other than the chosen AI provider
+  - Store the key in a database
+  - Share the key between users
+
+Why session_state is safe here:
+  Streamlit session_state exists only in memory for one user's
+  active session. It is not persisted anywhere. When the tab
+  is closed or refreshed, it is gone. This is the same approach
+  used by many AI playground tools.
+
+What users should understand:
+  - They need to re-enter their key each session
+  - This is intentional — it prevents accidental key exposure
+  - If they want persistence, they can set it as an environment
+    variable on their own machine before running the app
+
+
+================================================================
+SECTION 5 — MULTI-PROVIDER ROUTING ARCHITECTURE
+================================================================
+
+The fintalkbot.py file will have this structure:
+
+  get_financial_advice(user_question, user_profile_dict, provider, api_key)
+    |
+    |-- if provider == "Gemini"    → call_gemini(...)
+    |-- if provider == "OpenAI"    → call_openai(...)
+    |-- if provider == "Anthropic" → call_anthropic(...)
+    |-- if any call fails          → rule_based_advice(...)
+
+Each provider function:
+  - Configures the client with the provided api_key
+  - Builds the same system prompt with the user's financial context
+  - Calls the model
+  - Returns the response text
+
+The system prompt is identical across all providers:
+  "You are FinTalkBot, a personal financial advisor.
+   Use the following user profile to give specific advice.
+   Risk Category: {risk_label}
+   Expense Trend: {expense_trend}
+   Savings Trend: {savings_trend}
+   Average Monthly Income: Rs.{avg_income}
+   Do NOT give generic advice. Stay on personal finance topics only."
+
+This means the quality of advice depends only on the model,
+not on which provider is chosen.
+
+
+================================================================
+SECTION 6 — RULE-BASED FALLBACK ENGINE
+================================================================
+
+The fallback engine does not use any external API.
+It generates advice purely from the user's profile dict.
+
+Logic:
+
+  If risk_label == "High":
+    Core message: Control expenses, build emergency fund first,
+                  do not invest until savings are stable.
+    If expense_trend == "Deteriorating": add warning about rising costs.
+    If savings_trend == "Deteriorating": add urgency about negative savings.
+
+  If risk_label == "Medium":
+    Core message: Finances are manageable but need attention.
+    If expense_trend == "Improving": acknowledge positive direction.
+    If savings_trend == "Stable": suggest increasing savings rate.
+
+  If risk_label == "Low":
+    Core message: Strong financial position.
+    Suggest SIP investments, emergency fund top-up, or long-term planning.
+    Tailor based on savings trend direction.
+
+The fallback cannot answer arbitrary questions.
+It responds to any question with profile-aware general advice.
+This is clearly labeled in the UI so users understand the limitation.
+
+
+================================================================
+SECTION 7 — WHAT THIS MEANS FOR VIVA
+================================================================
+
+When asked "Tell me about your chatbot design":
+
+  "FinTalkBot is a context-aware financial advisor built on a
+   multi-provider architecture. Instead of hardcoding a single
+   API key, I implemented a Bring Your Own Key model where users
+   provide their own Gemini, OpenAI, or Anthropic API key.
+
+   The key is used only for that browser session and never stored
+   anywhere — not in a file, not in a database, not in memory
+   beyond the active session.
+
+   If no key is provided or the API call fails, the system falls
+   back to a rule-based advisor that generates profile-aware
+   responses from the user's computed financial metrics. This
+   ensures the chatbot never crashes and always gives relevant,
+   personalized output.
+
+   The financial context — risk label, expense and savings trends,
+   income level — is injected into the system prompt for every
+   query, so the AI cannot give generic advice. Every response
+   is anchored to that specific user's profile."
+
+When asked "Why did you change from the original design?":
+
+  "The original design used a single hardcoded Gemini key.
+   That creates cost, single-point-of-failure, and lock-in problems.
+   The BYOK multi-provider design solves all three. It is also
+   how real production AI tools work — Cursor, Perplexity, and
+   most AI-powered SaaS products use this same pattern."
+
+
+================================================================
+SECTION 8 — FILES THAT WILL BE CREATED
+================================================================
+
+src/fintalkbot.py
+  Contains:
+    - get_financial_advice(question, profile, provider, api_key)
+    - call_gemini(question, context, api_key)
+    - call_openai(question, context, api_key)
+    - call_anthropic(question, context, api_key)
+    - rule_based_advice(question, profile)
+    - build_context(profile)      ← shared prompt builder
+
+app.py (Phase 7)
+  Tab 2 will contain:
+    - Provider selector dropdown
+    - API key password input
+    - Session-only key storage in st.session_state
+    - Chat interface wired to get_financial_advice()
+    - Fallback indicator when rule-based mode is active
+
+
+================================================================
+SECTION 9 — WHAT HAS NOT CHANGED FROM ORIGINAL GUIDE
+================================================================
+
+These things remain exactly as the guide specified:
+
+  - The financial context passed to the chatbot (same profile dict)
+  - The system prompt structure (same financial advisor persona)
+  - The 200-word response limit instruction
+  - The "stay on personal finance topics" instruction
+  - The chat history stored in st.session_state
+  - The dependency on Tab 1 being completed first
+
+The only things we changed:
+  - API key is user-provided, not environment variable
+  - Multiple providers supported, not just Gemini
+  - Fallback engine added for when API is unavailable
+  - Key is never persisted anywhere
+
+
+================================================================
+END OF PHASE 6 DESIGN DOCUMENT
+================================================================

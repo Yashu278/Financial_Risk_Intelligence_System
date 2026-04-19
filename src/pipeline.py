@@ -8,6 +8,7 @@ from pathlib import Path
 
 from data_generation import generate_data
 from feature_engineering import engineer_features
+from forecasting import run_batch_forecasting
 from risk_model import main as run_risk_model
 from validate_phase2 import main as run_validate_phase2
 from pipeline_contract import (
@@ -41,6 +42,7 @@ STAGES = [
     ("data_generation", generate_data),
     ("feature_engineering", engineer_features),
     ("risk_model", run_risk_model),
+    ("forecasting", run_batch_forecasting),
     ("validate_phase2", run_validate_phase2),
 ]
 

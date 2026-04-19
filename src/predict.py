@@ -1,7 +1,5 @@
 import joblib
-import numpy as np
 import pandas as pd
-from scipy.stats import norm
 
 from src.pipeline_contract import FEATURE_COLS_PATH, LABEL_ENCODER_PATH, MODEL_PATH, SCALER_PATH, load_feature_cols, required_input_fields
 
@@ -13,7 +11,7 @@ FEATURE_COLS = load_feature_cols(FEATURE_COLS_PATH)
 REQUIRED_FIELDS = required_input_fields(FEATURE_COLS)
 
 print(f"Model expects {len(FEATURE_COLS)} features from {FEATURE_COLS_PATH}.")
-print(f"User must supply {len(REQUIRED_FIELDS)} fields (severe_overspend_freq is derived).")
+print(f"User must supply {len(REQUIRED_FIELDS)} fields.")
 
 
 def enforce_feature_contract(input_df):
@@ -50,7 +48,7 @@ def validate_input(input_dict):
     ALL_BOUNDS = {
         "avg_income": (1000, 500000),
         "income_volatility": (0, 2.0),
-        "income_growth_rate": (-0.5, 0.5),
+        "income_growth_rate": (-10000, 10000),
         "expense_ratio_mean": (0, 2.0),
         "expense_volatility": (0, 1.0),
         "irregular_freq": (0, 1.0),
@@ -74,14 +72,6 @@ def validate_input(input_dict):
                 errors.append(f"'{field}' = {val} is outside valid range [{low}, {high}]")
 
     return errors
-
-
-def derive_features(input_dict):
-    if "severe_overspend_freq" not in input_dict:
-        mean = input_dict.get("expense_ratio_mean", 0.5)
-        std = input_dict.get("expense_volatility", 0.1) + 1e-6
-        input_dict["severe_overspend_freq"] = float(1 - norm.cdf(0.90, loc=mean, scale=std))
-    return input_dict
 
 
 def generate_explanation(input_dict, risk_label):
@@ -123,13 +113,13 @@ def predict_risk(input_dict):
     """
     Predict financial risk for a single user.
 
-    Required input fields (derived from feature_cols.pkl at load time):
+        Required input fields (derived from feature_cols.pkl at load time):
       These fields must be present in input_dict.
       Run: print(REQUIRED_FIELDS) to see the exact list for your model.
 
-    Auto-derived field (do NOT supply manually):
-      severe_overspend_freq — computed from expense_ratio_mean
-                              and expense_volatility
+        Required field (must be supplied):
+            severe_overspend_freq — fraction of months where
+                                                            expense > income * 1.20
 
     Returns:
       dict with keys:
@@ -143,8 +133,6 @@ def predict_risk(input_dict):
     errors = validate_input(input_dict)
     if errors:
         return {"error": errors}
-
-    input_dict = derive_features(input_dict)
 
     # Build input as DataFrame to enforce column order explicitly
     input_df = pd.DataFrame([input_dict])
@@ -194,6 +182,7 @@ if __name__ == "__main__":
         "avg_irregular_amt": 2000,
         "savings_volatility": 0.10,
         "neg_savings_freq": 0.05,
+        "severe_overspend_freq": 0.02,
         "max_neg_savings_streak": 1,
         "city_tier_code": 2,
     }
@@ -208,6 +197,7 @@ if __name__ == "__main__":
         "avg_irregular_amt": 4944.69,
         "savings_volatility": 0.1371,
         "neg_savings_freq": 0.0947,
+        "severe_overspend_freq": 0.08,
         "max_neg_savings_streak": 2,
         "city_tier_code": 1,
     }
@@ -222,6 +212,7 @@ if __name__ == "__main__":
         "avg_irregular_amt": 3000,
         "savings_volatility": 0.05,
         "neg_savings_freq": 0.00,
+        "severe_overspend_freq": 0.00,
         "max_neg_savings_streak": 0,
         "city_tier_code": 3,
     }
@@ -236,6 +227,7 @@ if __name__ == "__main__":
         "avg_irregular_amt": 4000,
         "savings_volatility": 0.30,
         "neg_savings_freq": 1.00,
+        "severe_overspend_freq": 0.95,
         "max_neg_savings_streak": 24,
         "city_tier_code": 1,
     }
@@ -250,6 +242,7 @@ if __name__ == "__main__":
         "avg_irregular_amt": 1500,
         "savings_volatility": 0.08,
         "neg_savings_freq": 0.50,
+        "severe_overspend_freq": 0.55,
         "max_neg_savings_streak": 6,
         "city_tier_code": 2,
     }
