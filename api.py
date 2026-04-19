@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from statsmodels.tsa.arima.model import ARIMA
 
 from src.feature_utils import compute_features_from_lists
+from src.fintalkbot import get_financial_advice
 from src.monte_carlo import run_monte_carlo
 from src.predict import predict_risk
 
@@ -68,6 +69,26 @@ class AnalyzeResponse(BaseModel):
     savings_trend: Literal["Improving", "Stable", "Deteriorating", "Forecast Error"]
     forecast: ForecastPayload
     monte_carlo: MonteCarloPayload
+
+
+class ChatProfile(BaseModel):
+    risk_label: str
+    expense_trend: str
+    savings_trend: str
+    avg_income: float
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    profile: ChatProfile
+    provider: str = "None (Rule-based)"
+    api_key: str = ""
+    model: str = ""
+
+
+class ChatResponse(BaseModel):
+    response: str
+    mode: str
 
 
 def _validate_lists(income: list[float], expense: list[float]) -> None:
@@ -181,3 +202,16 @@ def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
         ),
     )
     return response
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    response_text, _, _ = get_financial_advice(
+        payload.question,
+        payload.profile.model_dump(),
+        payload.provider,
+        payload.api_key,
+    )
+
+    mode = f"AI ({payload.provider})" if payload.api_key.strip() else "Rule-Based"
+    return ChatResponse(response=response_text, mode=mode)
